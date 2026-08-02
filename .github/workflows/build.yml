@@ -1,0 +1,64 @@
+name: Build Chromium for iOS
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+jobs:
+  build-ios:
+    name: Build iOS (Release)
+    runs-on: macos-latest
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+
+    - name: Install depot_tools
+      run: |
+        git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git
+        echo "$(pwd)/depot_tools" >> $GITHUB_PATH
+
+    - name: Cache Chromium source
+      id: cache-chromium-src
+      uses: actions/cache@v4
+      with:
+        path: src
+        key: ${{ runner.os }}-chromium-src-${{ hashFiles('.github/workflows/build-chromium-ios.yml') }}
+        restore-keys: |
+          ${{ runner.os }}-chromium-src-
+
+    - name: Fetch Chromium code
+      if: steps.cache-chromium-src.outputs.cache-hit != 'true'
+      run: |
+        mkdir -p src
+        cd src
+        fetch ios
+
+    - name: Cache Chromium build tools
+      uses: actions/cache@v4
+      with:
+        path: |
+          src/.cipd
+          src/third_party
+        key: ${{ runner.os }}-chromium-tools-${{ hashFiles('src/DEPS') }}
+        restore-keys: |
+          ${{ runner.os }}-chromium-tools-
+
+    - name: Configure build with GN
+      run: |
+        cd src
+        ios/build/tools/setup-gn.py --target os=ios --mode Release --device
+
+    - name: Build with Ninja
+      run: |
+        cd src
+        autoninja -C out/Release-iphoneos ios_web_shell
+
+    - name: Upload .app as artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: Chromium-iOS-WebShell
+        path: src/out/Release-iphoneos/ios_web_shell.app
